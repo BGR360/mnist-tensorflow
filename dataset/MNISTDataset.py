@@ -33,8 +33,7 @@ class MNISTDataset(object):
 		self.shuffle = shuffle
 		self._shuffle_buffer_size = 10000
 
-		# Create tf.data.Datasets for each partition
-		self._datasets = {}
+		self._filepaths = {}
 		for partition_name in ['train', 'validation', 'test']:
 			tfrecords_filename = partition_name + '.tfrecords'
 			tfrecords_path = os.path.join(data_dir, tfrecords_filename)
@@ -45,19 +44,32 @@ class MNISTDataset(object):
 					". Try running:\n" + \
 					"\tpython data/fetch_mnist.py"
 				)
-			dataset = self._load_dataset_from_tfrecords()
-			self._datasets[partition_name] = dataset
+			self._filepaths[partition_name] = tfrecords_path
 
 	def _load_dataset_from_tfrecords(self, filepath):
 		"""
 		Return a tf.data.Dataset object loaded from a TFRecords file.
 		See data.fetch_mnist for how the dataset is saved to TFRecords.
+
+		Args:
+			filepath: Path to a .tfrecords file containing MNIST data.
+
+		Returns:
+			dataset: A tf.data.Dataset instance that yields (features, label)
+				pairs when iterated over, where features is a dict:
+					{'image_data': Tensor([batch_size, height, width, depth])}
+				and label is a tensor:
+					Tensor([batch_size])
 		"""
-		# Iterating through this will yield tf.Example protocol buffers.
+		# Iterating through this will yield tf.data.Example protocol buffers.
 		# So we must create a mapping function to parse these Examples.
 		dataset = tf.data.TFRecordsDataset(filepath)
 
 		def example_parser(example):
+			"""
+			Map a single tf.data.Example protocol buffer to a tuple of 
+			(features, label).
+			"""
 			keys_to_features = {
 				'height': tf.FixedLenFeature([], tf.int64),
                 'width': tf.FixedLenFeature([], tf.int64),
@@ -68,8 +80,9 @@ class MNISTDataset(object):
 			parsed = tf.parse_single_example(example, keys_to_features)
 
 			# Perform additional preprocessing
+			image_shape = [parsed['height'], parsed['width'], parsed['depth']]
 			image = tf.image.decode_image(parsed['image_raw'])
-
+			image = tf.reshape(image, image_shape)
 
 			features = {'image_data': image}
 			label = tf.cast(parsed['label'], tf.int32)
@@ -103,7 +116,8 @@ class MNISTDataset(object):
 			input_fn: A first-class function that returns a tuple of
 				(features, labels)
 		"""
-		dataset = self._datasets[partition_name]
+		tfrecords_path = self._filepaths[partition_name]
+		dataset = self._load_dataset_from_tfrecords(tfrecords_path)
 		def input_fn():
 			# Create an Iterator to iterate over the Dataset
 			iterator = dataset.make_one_shot_iterator()
