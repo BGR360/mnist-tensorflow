@@ -64,7 +64,7 @@ def write_to_tfrecords(data_set, partition_name):
 def main(unused_argv):
     # Get the data.
     data_sets = mnist.read_data_sets(FLAGS.directory,
-                                     dtype=tf.uint8,
+                                     dtype=tf.float32,
                                      reshape=False,
                                      validation_size=FLAGS.validation_size)
 
