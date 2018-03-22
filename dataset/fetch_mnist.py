@@ -41,6 +41,9 @@ def write_to_tfrecords(data_set, partition_name):
     cols = images.shape[2]
     depth = images.shape[3]
 
+    if not tf.gfile.Exists(FLAGS.directory):
+        tf.gfile.MakeDirs(FLAGS.directory)
+
     filename = os.path.join(FLAGS.directory, partition_name + '.tfrecords')
     print('Writing', filename)
     with tf.python_io.TFRecordWriter(filename) as writer:
@@ -77,7 +80,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--directory',
         type=str,
-        default=script_directory,
+        default=os.path.join(script_directory, 'data'),
         help='Directory to download data files and write the converted result'
     )
     parser.add_argument(
