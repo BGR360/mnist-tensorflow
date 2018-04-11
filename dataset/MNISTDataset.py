@@ -23,12 +23,16 @@ def _bytes_feature():
 
 class MNISTDataset(object):
     """
-    Wrapper class for the MNIST dataset. Used as input to a tf.learn.Estimator.
+    Wrapper class for the MNIST dataset.
+    Used as input to a `tf.learn.Estimator.`
     """
     def __init__(self, data_dir,
                  batch_size=128,
                  shuffle=False,
-                 shuffle_buffer_size=10000):
+                 shuffle_buffer_size=10000,
+                 reshape=False,
+                 image_dtype=tf.float32,
+                 label_dtype=tf.int32):
         """
         Create an MNISTDataset.
 
@@ -42,14 +46,23 @@ class MNISTDataset(object):
             shuffle_buffer_size: How many examples to keep in the random
                 shuffle buffer used by `tf.data.Dataset.shuffle()`. Must set
                 `shuffle` to True if this is provided.
+            flatten_images: Boolean value, whether to reshape the MNIST images
+                from flat 784x1 images to square 28x28 images. Default `False`.
+            image_dtype: Data type for the image data. Default `tf.float32`.
+            label_dtype: Data type for the labels. Default `tf.int32`.
         """
         self.batch_size = batch_size
         self.shuffle = shuffle
         self.shuffle_buffer_size = shuffle_buffer_size
+        self.reshape = reshape
+        self.image_dtype = image_dtype
+        self.label_dtype = label_dtype
 
         data_dir = os.path.realpath(data_dir)
         print("Creating MNISTDataset instance from {}".format(data_dir))
 
+        # Save references to the file paths where the train, validation,
+        # and test TFRecords files are stored.
         self._filepaths = {}
         for partition_name in ['train', 'validation', 'test']:
             tfrecords_filename = partition_name + '.tfrecords'
@@ -59,7 +72,7 @@ class MNISTDataset(object):
                     "Could not locate TFRecords file " + \
                     tfrecords_path + \
                     ". Try running:\n" + \
-                    "\tpython data/fetch_mnist.py"
+                    "\tpython dataset/fetch_mnist.py"
                 )
             self._filepaths[partition_name] = tfrecords_path
 
@@ -82,6 +95,7 @@ class MNISTDataset(object):
         # So we must create a mapping function to parse these Examples.
         dataset = tf.data.TFRecordDataset(filepath)
 
+        # The map function called on each TFRecords Example
         def example_parser(example):
             """
             Map a single `tf.data.Example` protocol buffer to a tuple of 
@@ -89,21 +103,25 @@ class MNISTDataset(object):
             """
             keys_to_features = {
                 'height': _int64_feature(),
-                'width': tf.FixedLenFeature([], tf.int64),
-                'depth': tf.FixedLenFeature([], tf.int64),
-                'label': tf.FixedLenFeature([], tf.int64),
+                'width': _int64_feature(),
+                'depth': _int64_feature(),
+                'label': _int64_feature(),
                 'image_raw': _bytes_feature()
             }
             parsed = tf.parse_single_example(example, keys_to_features)
 
-            # Perform additional preprocessing
-            image_shape = tf.stack(
-                [parsed['height'], parsed['width'], parsed['depth']])
+            # Process image data
             image = tf.decode_raw(parsed['image_raw'], tf.float32)
-            image = tf.reshape(image, image_shape)
+            image = tf.cast(image, self.image_dtype)
+            if self.reshape:
+                image_shape = tf.stack(
+                    [parsed['height'], parsed['width']])
+                image = tf.reshape(image, image_shape)
 
-            features = {'image_data': image}
-            label = tf.cast(parsed['label'], tf.int32)
+            features = {
+                'image_data': image
+            }
+            label = tf.cast(parsed['label'], self.label_dtype)
 
             return features, label
 
@@ -112,7 +130,7 @@ class MNISTDataset(object):
         dataset = dataset.map(example_parser)
 
         if self.shuffle:
-            dataset = dataset.shuffle(buffer_size=self._shuffle_buffer_size)
+            dataset = dataset.shuffle(buffer_size=self.shuffle_buffer_size)
 
         # Repeat the dataset forever
         dataset = dataset.repeat()
@@ -149,6 +167,24 @@ class MNISTDataset(object):
             return features, labels
         return input_fn
 
+    def get_feature_columns(self):
+        """
+        Return a dict of feature columns that can be passed to the constructor
+        of a `tf.learn.Estimator`.
+
+        Returns:
+            A dict of `{'feature_name': feature_column}`.
+        """
+        if self.reshape:
+            image_shape = (28,28)
+        else:
+            image_shape = (784,)
+
+        return {
+            'image_data': tf.feature_column.numeric_column(
+                'image_data', shape=image_shape, dtype=self.image_dtype)
+        }
+
 
 # Test that the class works by loading the dataset and iterating over the
 # first couple batches.
@@ -161,10 +197,33 @@ if __name__ == '__main__':
         default=os.path.join(script_directory, 'data'),
         help='Directory containing MNIST .tfrecords files'
     )
+    parser.add_argument(
+        '--reshape',
+        default=False,
+        action='store_true',
+        help='Whether to reshape the MNIST data into 28x28 images'
+    )
+    parser.add_argument(
+        '--shuffle',
+        default=False,
+        action='store_true',
+        help='Whether to shuffle the data in the dataset'
+    )
+    parser.add_argument(
+        '-v',
+        '--verbose',
+        default=False,
+        action='store_true'
+    )
     FLAGS, unparsed = parser.parse_known_args()
     
     print("Testing the functionality of MNISTDataset")
-    dataset = MNISTDataset(FLAGS.directory, batch_size=32, shuffle=False)
+    dataset = MNISTDataset(
+        FLAGS.directory,
+        batch_size=32,
+        shuffle=FLAGS.shuffle,
+        reshape=FLAGS.reshape
+    )
     input_fn = dataset.get_input_fn('train')
     batch_features, batch_labels = input_fn()
 
@@ -175,5 +234,6 @@ if __name__ == '__main__':
             images = features['image_data']
             print("images shape: {}".format(images.shape))
             print("labels shape: {}".format(labels.shape))
-            #print("images[0]: {}".format(images[0]))
-            #print("labels[0]: {}".format(labels[0]))
+            if FLAGS.verbose:
+                print("images[0]: {}".format(images[0]))
+                print("labels[0]: {}".format(labels[0]))
