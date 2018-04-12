@@ -162,6 +162,8 @@ class MNISTDataset(object):
             iterator = dataset.make_one_shot_iterator()
             # Evaluating these tensors will advance the Iterator
             features, labels = iterator.get_next()
+            # TODO: remove
+            features['image_data'] = tf.Print(features['image_data'], [], partition_name)
             # `features` is a dictionary in which each value is a batch of 
             # values for that feature; `labels` is a batch of labels.
             return features, labels
