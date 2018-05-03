@@ -15,7 +15,8 @@ import tensorflow as tf
 def get_default_hparams():
     """Return the default hyperparameters for this model as an HParams object."""
     params = tf.contrib.training.HParams(
-        hidden_units=[128, 64, 32],
+        n_classes=10,
+        hidden_units=[1024, 512, 256],
         learning_rate=0.01,
         l1_regularization=0.001,
         dropout=None

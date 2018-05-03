@@ -37,17 +37,20 @@ def get_model_hparams():
     raise TypeError("Invalid model {}".format(FLAGS.model))
 
 
-def experiment_fn(run_config, params):
-    """
-    Create an experiment to train and evaluate the model.
-    
-    Args:
-        run_config (RunConfig): Configuration for Estimator run.
-        params (HParams): Hyperparameters
-    
-    Returns:
-        (Experiment) Experiment for training the mnist model.
-    """
+def run_experiment(argv=None):
+    # Define the default hyperparameters for the experiment
+    params = get_model_hparams()
+    # Override hyperparameters with any specified on the command line
+    params.parse(FLAGS.hparams)
+    print("Hyperparameters selected:")
+    print(params)
+
+    # Set the run_config and the directory to save the model and stats
+    run_config = tf.estimator.RunConfig()
+    run_config = run_config.replace(model_dir=FLAGS.model_dir)
+    run_config = run_config.replace(
+        save_checkpoints_secs=FLAGS.save_checkpoints_secs)
+
     # Get training and evaluation data
     dataset = MNISTDataset(
         FLAGS.data_dir,
@@ -56,83 +59,94 @@ def experiment_fn(run_config, params):
     )
     train_input_fn = dataset.get_input_fn('train')
     eval_input_fn = dataset.get_input_fn('validation')
-    
-    # Create an Estimator
+
+    # Specify feature columns
     feature_columns_dict = dataset.get_feature_columns()
-    feature_columns = [feature_columns_dict['image_data']]
+    feature_columns = [
+        feature_columns_dict['image_data']
+    ]
+
+    # Create estimator with the given hparams and run config
     estimator = get_estimator(run_config, params, feature_columns)
 
-    # Define the experiment
-    experiment = tf.contrib.learn.Experiment(
-        estimator=estimator,  # Estimator
-        train_input_fn=train_input_fn,  # First-class function
-        eval_input_fn=eval_input_fn,  # First-class function
-        train_steps=params.train_steps,  # Minibatch steps
-        min_eval_frequency=params.min_eval_frequency,  # Eval frequency
-        eval_steps=params.eval_steps
+    # Set up train and eval specs
+    train_spec = tf.estimator.TrainSpec(
+        input_fn=train_input_fn,
+        max_steps=FLAGS.train_steps
     )
-    return experiment
-
-
-def run_experiment(argv=None):
-    # Define the hyperparameters for the experiment
-    params = get_model_hparams()
-    params.add_hparam('n_classes', 10)
-    params.add_hparam('train_steps', 5000)
-    params.add_hparam('eval_steps', 1000)
-    params.add_hparam('min_eval_frequency', 100)
-    # Override hyperparameters with any specified on the command line
-    params.parse(FLAGS.hparams)
-
-    # Set the run_config and the directory to save the model and stats
-    run_config = tf.contrib.learn.RunConfig()
-    run_config = run_config.replace(model_dir=FLAGS.model_dir)
-    run_config = run_config.replace(
-        save_checkpoints_steps=params.min_eval_frequency)
-
-    tf.contrib.learn.learn_runner.run(
-        experiment_fn=experiment_fn,  # First-class function
-        run_config=run_config,  # RunConfig
-        schedule="train_and_evaluate",  # What to run
-        hparams=params  # HParams
+    eval_spec = tf.estimator.EvalSpec(
+        input_fn=eval_input_fn,
+        steps=FLAGS.eval_steps,
+        start_delay_secs=FLAGS.eval_interval_secs,
+        throttle_secs=FLAGS.eval_interval_secs
     )
+
+    # Run the experiment
+    tf.estimator.train_and_evaluate(estimator, train_spec, eval_spec)
 
 
 if __name__ == '__main__':
     script_directory = os.path.dirname(os.path.realpath(__file__))
-    parser = configargparse.ArgParser()
+    parser = configargparse.ArgParser(
+        formatter_class=configargparse.ArgumentDefaultsHelpFormatter)
     parser.add(
         '-c',
         '--config',
         is_config_file=True,
         help='Config file path')
     parser.add(
+        '-m',
+        '--model',
+        choices=['DNN'],
+        default='DNN',
+        help='Which model type to use for classification.'
+    )
+    parser.add(
         '--model_dir',
         type=str,
         default=os.path.join(script_directory, 'checkpoints'),
+        help='Where to save model checkpoints.'
     )
     parser.add(
         '--data_dir',
         type=str,
         default=os.path.join(script_directory, 'dataset/data'),
-        help='Directory containing MNIST .tfrecords files'
-    )
-    parser.add(
-        '--model',
-        choices=['DNN'],
-        default='DNN',
-        help='Which model type to use for classification'
+        help='Directory containing MNIST .tfrecords files.'
     )
     parser.add(
         '--batch_size',
         type=int,
-        default=128,
+        default=128
     )
     parser.add(
         '--shuffle',
         default=False,
         action='store_true',
-        help='Shuffle dataset when iterating through it'
+        help='Shuffle dataset when iterating through it.'
+    )
+    parser.add(
+        '--train_steps',
+        type=int,
+        default=5000,
+        help='Maximum number of batches to train on.'
+    )
+    parser.add(
+        '--eval_steps',
+        type=int,
+        default=50,
+        help='How many batches to run during each evaluation run.'
+    )
+    parser.add(
+        '--eval_interval_secs',
+        type=int,
+        default=30,
+        help='Minimum interval between evaluation runs.'
+    )
+    parser.add(
+        '--save_checkpoints_secs',
+        type=int,
+        default=30,
+        help='How often to save model checkpoints.'
     )
     parser.add(
         '--hparams',
