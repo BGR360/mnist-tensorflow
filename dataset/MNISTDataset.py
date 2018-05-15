@@ -21,6 +21,41 @@ def _bytes_feature():
     return tf.FixedLenFeature([], tf.string)
 
 
+def get_example_parser(reshape=False,
+                       image_dtype=tf.float32,
+                       label_dtype=tf.int32):
+    """Return a function that can be used to parse TFRecords examples."""
+    def parser(example):
+        """
+        Map a single `tf.data.Example` protocol buffer to a tuple of 
+        `(features, label)`.
+        """
+        keys_to_features = {
+            'height': _int64_feature(),
+            'width': _int64_feature(),
+            'depth': _int64_feature(),
+            'label': _int64_feature(),
+            'image_raw': _bytes_feature()
+        }
+        parsed = tf.parse_single_example(example, keys_to_features)
+
+        # Process image data
+        image = tf.decode_raw(parsed['image_raw'], tf.float32)
+        image = tf.cast(image, image_dtype)
+        if reshape:
+            image_shape = tf.stack(
+                [parsed['height'], parsed['width']])
+            image = tf.reshape(image, image_shape)
+
+        features = {
+            'image_data': image
+        }
+        label = tf.cast(parsed['label'], label_dtype)
+
+        return features, label
+    return parser
+
+
 class MNISTDataset(object):
     """
     Wrapper class for the MNIST dataset.
@@ -96,34 +131,8 @@ class MNISTDataset(object):
         dataset = tf.data.TFRecordDataset(filepath)
 
         # The map function called on each TFRecords Example
-        def example_parser(example):
-            """
-            Map a single `tf.data.Example` protocol buffer to a tuple of 
-            `(features, label)`.
-            """
-            keys_to_features = {
-                'height': _int64_feature(),
-                'width': _int64_feature(),
-                'depth': _int64_feature(),
-                'label': _int64_feature(),
-                'image_raw': _bytes_feature()
-            }
-            parsed = tf.parse_single_example(example, keys_to_features)
-
-            # Process image data
-            image = tf.decode_raw(parsed['image_raw'], tf.float32)
-            image = tf.cast(image, self.image_dtype)
-            if self.reshape:
-                image_shape = tf.stack(
-                    [parsed['height'], parsed['width']])
-                image = tf.reshape(image, image_shape)
-
-            features = {
-                'image_data': image
-            }
-            label = tf.cast(parsed['label'], self.label_dtype)
-
-            return features, label
+        example_parser = get_example_parser(
+            self.reshape, self.image_dtype, self.label_dtype)
 
         # Use `Dataset.map()` to build a pair of a feature dictionary and a 
         # label tensor for each example.
