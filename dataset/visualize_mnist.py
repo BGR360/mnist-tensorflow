@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
-from MNISTDataset import MNISTDataset, get_example_parser
+from MNISTDataset import MNISTDataset
 
 # Parsed later
 FLAGS = None
